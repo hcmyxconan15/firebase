@@ -23,7 +23,7 @@ jobs:
         id: extract_version
         run: |
           MATCH_FILE=$(find . -type f -name package.json -exec grep -l '"name": "com.undercats.firebase"' {} \;)
-
+          
           if [ -z "$MATCH_FILE" ]; then
             echo "❌ Không tìm thấy package.json phù hợp!"
             exit 1
@@ -32,37 +32,30 @@ jobs:
           VERSION=$(jq -r .version "$MATCH_FILE")
           echo "MATCH_FILE=$MATCH_FILE" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+
           echo "✅ Found package.json at $MATCH_FILE"
           echo "🔢 Version: $VERSION"
 
-      - name: Check if tag already exists
-        run: |
-          if git ls-remote --tags origin | grep -q "refs/tags/$VERSION"; then
-            echo "❌ Tag $VERSION already exists. Skipping deploy."
-            exit 0
-          fi
-
       - name: Deploy UPM package
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -ex
 
           SEMVER="$VERSION"
+          if [ -z "$SEMVER" ]; then
+            echo "You must provide the --semver option."
+            exit 1
+          fi
+
+          # Loại bỏ ./ ở đầu nếu có
           PREFIX=$(dirname "$MATCH_FILE" | sed 's|^\./||')
           BRANCH="upm"
 
-          # Tách subtree và tạo nhánh
-          git subtree split --prefix="$PREFIX" --branch "$BRANCH"
+          # Tách subtree và gắn tag
+          git subtree split --prefix="$PREFIX" --branch $BRANCH
+          git tag "$SEMVER" $BRANCH
 
-          # Gắn tag vào nhánh đó
-          git tag "$SEMVER" "$BRANCH"
+          # Chỉ đẩy tag (không đẩy nhánh)
+          git push origin --tags
 
-          # Cấu hình remote để sử dụng token
-          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git
-
-          # Push tag duy nhất
-          git push origin "$SEMVER"
-
-          # Xoá nhánh tạm
-          git branch -D "$BRANCH"
+          # Dọn dẹp nhánh local tạm
+          git branch -D $BRANCH
